@@ -21,7 +21,28 @@ QUESTION_TEXT = "Есть ли у вас вопросы? Я могу сразу 
 BITRIX24_WEBHOOK_URL = os.getenv("BITRIX24_WEBHOOK_URL", "").rstrip("/")
 OPEN_LINE_ID = os.getenv("BITRIX24_OPEN_LINE_ID", "")
 MANAGER_ID = os.getenv("BITRIX24_MANAGER_ID", "")
+MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
+MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://api.max.ru")
 
+
+
+
+def send_to_max(chat_id: str, text: str) -> None:
+    """
+    Sends a bot message to MAX via HTTP API.
+
+    Requires env:
+      - MAX_BOT_TOKEN
+      - MAX_API_BASE_URL (optional, default https://api.max.ru)
+    """
+    if not MAX_BOT_TOKEN:
+        app.logger.warning("MAX_BOT_TOKEN is not configured. Reply is returned only in webhook response.")
+        return
+
+    url = f"{MAX_API_BASE_URL.rstrip('/')}/bot/messages/send"
+    headers = {"Authorization": f"Bearer {MAX_BOT_TOKEN}"}
+    payload = {"chat_id": str(chat_id), "text": text}
+    requests.post(url, json=payload, headers=headers, timeout=10)
 
 def send_to_bitrix_open_line(chat_id: str, message: str) -> None:
     """
@@ -80,10 +101,12 @@ def max_webhook():
 
     if step == "start":
         DIALOG_STATE[chat_id] = "asked_questions"
+        reply_text = f"{COMPANY_TEXT}\n\n{QUESTION_TEXT}"
+        send_to_max(chat_id, reply_text)
         return jsonify(
             {
                 "ok": True,
-                "reply": f"{COMPANY_TEXT}\n\n{QUESTION_TEXT}",
+                "reply": reply_text,
                 "handoff": False,
             }
         )
@@ -91,18 +114,22 @@ def max_webhook():
     if step == "asked_questions":
         send_to_bitrix_open_line(chat_id, text or "Клиент готов к общению с менеджером")
         DIALOG_STATE[chat_id] = "transferred"
+        reply_text = "Спасибо! Подключаю менеджера. Пожалуйста, оставайтесь на связи 🙌"
+        send_to_max(chat_id, reply_text)
         return jsonify(
             {
                 "ok": True,
-                "reply": "Спасибо! Подключаю менеджера. Пожалуйста, оставайтесь на связи 🙌",
+                "reply": reply_text,
                 "handoff": True,
             }
         )
 
+    reply_text = "Диалог уже передан менеджеру. Он ответит вам в этом чате."
+    send_to_max(chat_id, reply_text)
     return jsonify(
         {
             "ok": True,
-            "reply": "Диалог уже передан менеджеру. Он ответит вам в этом чате.",
+            "reply": reply_text,
             "handoff": True,
         }
     )
